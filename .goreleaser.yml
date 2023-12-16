@@ -1,0 +1,18 @@
+builds:
+  - binary: go-poc
+    goos:
+    - darwin
+    - linux
+    goarch:
+    - amd64
+    - arm64
+    env:
+    - CGO_ENABLED=0
+    flags:
+    - -mod=vendor
+
+release:
+  preleases: auto
+
+universal_binaries:
+  - replace: true
