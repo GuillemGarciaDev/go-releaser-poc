@@ -1,68 +1,68 @@
 #!/usr/bin/env node
 
-"use strict";
-// Thanks to author of https://github.com/sanathkr/go-npm, we were able to modify his code to work with private packages
-var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; };
+"use strict"
 
-var path = require('path'),
+const request = require('request'),
+    path = require('path'),
+    tar = require('tar'),
+    zlib = require('zlib'),
     mkdirp = require('mkdirp'),
-    fs = require('fs');
+    fs = require('fs'),
+    exec = require('child_process').exec;
 
 // Mapping from Node's `process.arch` to Golang's `$GOARCH`
-var ARCH_MAPPING = {
+const ARCH_MAPPING = {
     "ia32": "386",
     "x64": "amd64",
     "arm": "arm",
     "arm64": "arm64"
 };
 
-// Mapping between Node's `process.platform` to Golang's
-var PLATFORM_MAPPING = {
+// Mapping between Node's `process.platform` to Golang's 
+const PLATFORM_MAPPING = {
     "darwin": "darwin",
     "linux": "linux",
     "win32": "windows",
     "freebsd": "freebsd"
 };
 
-async function getInstallationPath() {
+function getInstallationPath(callback) {
 
     // `npm bin` will output the path where binary files should be installed
+    exec("npm bin", function(err, stdout, stderr) {
 
-    const value = await execShellCommand("npm bin -g");
-
-
-        var dir = null;
-        if (!value || value.length === 0) {
+        let dir =  null;
+        if (err || stderr || !stdout || stdout.length === 0)  {
 
             // We couldn't infer path from `npm bin`. Let's try to get it from
             // Environment variables set by NPM when it runs.
             // npm_config_prefix points to NPM's installation directory where `bin` folder is available
             // Ex: /Users/foo/.nvm/versions/node/v4.3.0
-            var env = process.env;
+            let env = process.env;
             if (env && env.npm_config_prefix) {
                 dir = path.join(env.npm_config_prefix, "bin");
             }
         } else {
-            dir = value.trim();
+            dir = stdout.trim();
         }
 
-        await mkdirp(dir);
-        return dir;
+        mkdirp.sync(dir);
+
+        callback(null, dir);
+    });
+
 }
 
-async function verifyAndPlaceBinary(binName, binPath, callback) {
-    if (!fs.existsSync(path.join(binPath, binName))) return callback('Downloaded binary does not contain the binary specified in configuration - ' + binName);
+function verifyAndPlaceBinary(binName, binPath, callback) {
+    if (!fs.existsSync(path.join(binPath, binName))) return callback(`Downloaded binary does not contain the binary specified in configuration - ${binName}`);
 
-    // Get installation path for executables under node
-    const installationPath=  await getInstallationPath();
-    // Copy the executable to the path
-    fs.rename(path.join(binPath, binName), path.join(installationPath, binName),(err)=>{
-        if(!err){
-            console.info("Installed cli successfully");
-            callback(null);
-        }else{
-            callback(err);
-        }
+    getInstallationPath(function(err, installationPath) {
+        if (err) return callback("Error getting binary installation path from `npm bin`");
+
+        // Move the binary file
+        fs.renameSync(path.join(binPath, binName), path.join(installationPath, binName));
+
+        callback(null);
     });
 }
 
@@ -72,7 +72,7 @@ function validateConfiguration(packageJson) {
         return "'version' property must be specified";
     }
 
-    if (!packageJson.goBinary || _typeof(packageJson.goBinary) !== "object") {
+    if (!packageJson.goBinary || typeof(packageJson.goBinary) !== "object") {
         return "'goBinary' property must be defined and be an object";
     }
 
@@ -83,6 +83,14 @@ function validateConfiguration(packageJson) {
     if (!packageJson.goBinary.path) {
         return "'path' property is necessary";
     }
+
+    if (!packageJson.goBinary.url) {
+        return "'url' property is required";
+    }
+
+    // if (!packageJson.bin || typeof(packageJson.bin) !== "object") {
+    //     return "'bin' property of package.json must be defined and be an object";
+    // }
 }
 
 function parsePackageJson() {
@@ -93,108 +101,116 @@ function parsePackageJson() {
 
     if (!(process.platform in PLATFORM_MAPPING)) {
         console.error("Installation is not supported for this platform: " + process.platform);
-        return;
+        return
     }
 
-    var packageJsonPath = path.join(".", "package.json");
+    const packageJsonPath = path.join(".", "package.json");
     if (!fs.existsSync(packageJsonPath)) {
-        console.error("Unable to find package.json. " + "Please run this script at root of the package you want to be installed");
-        return;
+        console.error("Unable to find package.json. " +
+            "Please run this script at root of the package you want to be installed");
+        return
     }
 
-    var packageJson = JSON.parse(fs.readFileSync(packageJsonPath));
-    var error = validateConfiguration(packageJson);
+    let packageJson = JSON.parse(fs.readFileSync(packageJsonPath));
+    let error = validateConfiguration(packageJson);
     if (error && error.length > 0) {
         console.error("Invalid package.json: " + error);
-        return;
+        return
     }
 
     // We have validated the config. It exists in all its glory
-    var binName = packageJson.goBinary.name;
-    var binPath = packageJson.goBinary.path;
-    var version = packageJson.version;
-    if (version[0] === 'v') version = version.substr(1); // strip the 'v' if necessary v0.0.1 => 0.0.1
+    let binName = packageJson.goBinary.name;
+    let binPath = packageJson.goBinary.path;
+    let url = packageJson.goBinary.url;
+    let version = packageJson.version;
+    if (version[0] === 'v') version = version.substr(1);  // strip the 'v' if necessary v0.0.1 => 0.0.1
 
     // Binary name on Windows has .exe suffix
     if (process.platform === "win32") {
-        binName += ".exe";
+        binName += ".exe"
     }
 
+    // Interpolate variables in URL, if necessary
+    url = url.replace(/{{arch}}/g, ARCH_MAPPING[process.arch]);
+    url = url.replace(/{{platform}}/g, PLATFORM_MAPPING[process.platform]);
+    url = url.replace(/{{version}}/g, version);
+    url = url.replace(/{{bin_name}}/g, binName);
 
     return {
         binName: binName,
         binPath: binPath,
+        url: url,
         version: version
-    };
+    }
 }
 
 /**
  * Reads the configuration from application's package.json,
- * validates properties, copied the binary from the package and stores at
+ * validates properties, downloads the binary, untars, and stores at
  * ./bin in the package's root. NPM already has support to install binary files
  * specific locations when invoked with "npm install -g"
  *
  *  See: https://docs.npmjs.com/files/package.json#bin
  */
-var INVALID_INPUT = "Invalid inputs";
-async function install(callback) {
+const INVALID_INPUT = "Invalid inputs";
+function install(callback) {
 
-    var opts = parsePackageJson();
+    let opts = parsePackageJson();
     if (!opts) return callback(INVALID_INPUT);
+
     mkdirp.sync(opts.binPath);
-    console.info(`Copying the relevant binary for your platform ${process.platform}`);
-    const src= `./dist/go-releaser-poc-${process.platform}-${ARCH_MAPPING[process.arch]}_${process.platform}_${ARCH_MAPPING[process.arch]}/${opts.binName}`;
-    await execShellCommand(`cp ${src} ${opts.binPath}/${opts.binName}`);
-    await verifyAndPlaceBinary(opts.binName, opts.binPath, callback);
-}
+    let ungz = zlib.createGunzip();
+    let untar = tar.Extract({path: opts.binPath});
 
-async function uninstall(callback) {
-    var opts = parsePackageJson();
-        try {
-            const installationPath = await getInstallationPath();
-            fs.unlink(path.join(installationPath, opts.binName),(err)=>{
-                if(err){
-                    return callback(err);
-                }
-            });
-        } catch (ex) {
-            // Ignore errors when deleting the file.
-        }
-    console.info("Uninstalled cli successfully");
-    return callback(null);
-}
+    ungz.on('error', callback);
+    untar.on('error', callback);
 
-// Parse command line arguments and call the right method
-var actions = {
-    "install": install,
-    "uninstall": uninstall
-};
-/**
- * Executes a shell command and return it as a Promise.
- * @param cmd {string}
- * @return {Promise<string>}
- */
-function execShellCommand(cmd) {
-    const exec = require('child_process').exec;
-    return new Promise((resolve, reject) => {
-        exec(cmd, (error, stdout, stderr) => {
-            if (error) {
-                console.warn(error);
-            }
-            resolve(stdout? stdout : stderr);
-        });
+    // First we will Un-GZip, then we will untar. So once untar is completed,
+    // binary is downloaded into `binPath`. Verify the binary and call it good
+    untar.on('end', verifyAndPlaceBinary.bind(null, opts.binName, opts.binPath, callback));
+
+    console.log("Downloading from URL: " + opts.url);
+    let req = request({uri: opts.url});
+    req.on('error', callback.bind(null, "Error downloading from URL: " + opts.url));
+    req.on('response', function(res) {
+        if (res.statusCode !== 200) return callback("Error downloading binary. HTTP Status Code: " + res.statusCode);
+
+        req.pipe(ungz).pipe(untar);
     });
 }
 
-var argv = process.argv;
+function uninstall(callback) {
+
+    let opts = parsePackageJson();
+    getInstallationPath(function(err, installationPath) {
+        if (err) callback("Error finding binary installation directory");
+
+        try {
+            fs.unlinkSync(path.join(installationPath, opts.binName));
+        } catch(ex) {
+            // Ignore errors when deleting the file.
+        }
+
+        return callback(null);
+    });
+}
+
+
+// Parse command line arguments and call the right method
+let actions = {
+    "install": install,
+    "uninstall": uninstall
+};
+
+let argv = process.argv;
 if (argv && argv.length > 2) {
-    var cmd = process.argv[2];
+    let cmd = process.argv[2];
     if (!actions[cmd]) {
-        console.log("Invalid command. `install` and `uninstall` are the only supported commands");
+        console.log("Invalid command to go-npm. `install` and `uninstall` are the only supported commands");
         process.exit(1);
     }
 
-    actions[cmd](function (err) {
+    actions[cmd](function(err) {
         if (err) {
             console.error(err);
             process.exit(1);
@@ -203,3 +219,5 @@ if (argv && argv.length > 2) {
         }
     });
 }
+
+
