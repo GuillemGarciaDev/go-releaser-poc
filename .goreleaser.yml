@@ -11,6 +11,3 @@ builds:
 
 release:
   prerelease: auto
-
-universal_binaries:
-  - replace: true
