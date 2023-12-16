@@ -1,11 +1,11 @@
 {
   "name": "go-releaser-poc",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "postinstall": "go-npm install",
-    "preuninstall": "go-npm uninstall"
+    "postinstall": "node scripts/postinstall.js install",
+    "preuninstall": "go-npm scripts/postinstall.js uninstall"
   },
   "keywords": [],
   "author": "",
@@ -14,9 +14,9 @@
     "go-npm": "^0.1.9"
   },
   "goBinary": {
-      "name": "go-release-poc",
+      "name": "go-releaser-poc",
       "path": "./bin",
-      "url": "https://github.com/user/go-releaser-poc/releases/download/v0.5/go-releaser-poc_0.5_darwin_arm64.tar.gz"
+      "url": "https://github.com/user/go-releaser-poc/releases/download/v{{version}}/go-releaser-poc_{{version}}_{{platform}}_{{arch}}.tar.gz"
   },
   "publishConfig": {
     "access": "public"
