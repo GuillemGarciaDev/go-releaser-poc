@@ -1,6 +1,6 @@
 {
   "name": "go-releaser-poc",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -17,7 +17,7 @@
   },
 
   "goBinary": {
-      "name": "go-releaser-poc",
+      "name": "go-release-poc",
       "path": "./bin",
       "url": "https://github.com/GuillemGarciaDev/go-releaser-poc/releases/download/v{{version}}/go-releaser-poc_{{version}}_{{platform}}_{{arch}}.tar.gz"
   },
