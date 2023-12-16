@@ -1,18 +1,21 @@
 {
   "name": "go-releaser-poc",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "",
   "main": "index.js",
   "scripts": {
     "postinstall": "node scripts/postinstall.js install",
-    "preuninstall": "go-npm scripts/postinstall.js uninstall"
+    "preuninstall": "node scripts/postinstall.js uninstall"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "go-npm": "^0.1.9"
+    "mkdirp": "^0.5.1",
+    "request": "^2.81.0",
+    "tar": "^2.2.1"
   },
+
   "goBinary": {
       "name": "go-releaser-poc",
       "path": "./bin",
